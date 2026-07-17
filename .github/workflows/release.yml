@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build macOS app
+        run: pyinstaller git_account_switcher.spec
+
+      - name: Archive macOS app
+        run: cd dist && zip -r ../GitAccountSwitcher-macOS.zip "Git Account Switcher.app"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: GitAccountSwitcher-macOS.zip
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build Windows executable
+        run: pyinstaller --onefile --windowed --name GitAccountSwitcher --hidden-import=tkinter --hidden-import=_tkinter git_account_switcher.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/GitAccountSwitcher.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build Linux executable
+        run: pyinstaller --onefile --windowed --name GitAccountSwitcher --hidden-import=tkinter --hidden-import=_tkinter git_account_switcher.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/GitAccountSwitcher
+
+  publish:
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/macos/GitAccountSwitcher-macOS.zip
+            artifacts/windows/GitAccountSwitcher.exe
+            artifacts/linux/GitAccountSwitcher
