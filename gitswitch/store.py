@@ -4,10 +4,12 @@ import json
 from pathlib import Path
 
 from gitswitch.models import Account
+from gitswitch.oauth import DEFAULT_CALLBACK_PORT
 
 CONFIG_DIR = Path.home() / ".gitswitch"
 CONFIG_FILE = CONFIG_DIR / "accounts.json"
 THEME_FILE = CONFIG_DIR / "theme.json"
+OAUTH_FILE = CONFIG_DIR / "oauth.json"
 
 
 class AccountStore:
@@ -73,3 +75,38 @@ class ThemePreferenceStore:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         with open(THEME_FILE, "w", encoding="utf-8") as handle:
             json.dump({"theme": theme}, handle, indent=2)
+
+
+class OAuthConfigStore:
+    """Local OAuth app settings (public client ID only — never store a client secret)."""
+
+    def load(self) -> dict[str, object]:
+        try:
+            with open(OAUTH_FILE, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    def github_client_id(self) -> str:
+        data = self.load()
+        return str(data.get("github_client_id", "") or "").strip()
+
+    def callback_port(self) -> int:
+        data = self.load()
+        raw = data.get("callback_port", DEFAULT_CALLBACK_PORT)
+        try:
+            port = int(raw)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return DEFAULT_CALLBACK_PORT
+        return port if 1024 <= port <= 65535 else DEFAULT_CALLBACK_PORT
+
+    def save_github_client_id(self, client_id: str, callback_port: int | None = None) -> None:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        data = self.load()
+        data["github_client_id"] = client_id.strip()
+        data["callback_port"] = (
+            callback_port if callback_port is not None else self.callback_port()
+        )
+        with open(OAUTH_FILE, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2)

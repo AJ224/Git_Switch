@@ -9,16 +9,44 @@ A lightweight desktop app for switching between Git identities, SSH keys, and HT
 - Save multiple Git accounts with label, `user.name`, and `user.email`
 - Switch identity globally or for a single repository
 - Optional SSH key activation via `ssh-add`
+- **Add with GitHub** — browser approve via GitHub device login (no Client ID / PAT / `gh` setup)
 - Optional HTTPS PAT storage through native Git credential helpers
 - Light and dark themes with persisted preference
 - Local-only storage in `~/.gitswitch/`
 
+## Important: Identity only vs SSH / PAT
+
+| Auth mode | What switch changes | What it does **not** change |
+| --- | --- | --- |
+| **Identity only** | Commit author (`user.name` / `user.email`) | Push/pull authentication |
+| **SSH key** | Commit author + loads the SSH key | — |
+| **HTTPS / PAT** | Commit author + activates that HTTPS username/PAT | — |
+
+**Identity only is not enough for private repos.** If push/pull fails with “repository not found” after switching, the account likely has no SSH key or PAT configured — Git is still using another account’s credentials.
+
+This app also does **not** switch GitHub CLI (`gh`) login. Use `gh auth switch` separately if you use `gh`.
+
+## GitHub browser sign-in
+
+Click **Add with GitHub** → approve in the browser → done.
+
+Uses GitHub's official device login (browser + one-time code). No OAuth App setup, Client ID, Homepage URL, PAT paste, or GitHub CLI required.
+
+- Sign in **once per GitHub account** (token is saved in your OS credential store)
+- Click **Switch account** anytime after that — no browser login again
+- Switch updates **commit author** and **HTTPS push/pull** credentials
+- Switch does **not** change GitHub CLI (`gh`) login — use `gh auth switch` separately if needed
+- HTTPS remotes (`https://github.com/...`) use the stored token; SSH remotes need an SSH account instead
+
+Then select the account and click **Switch account** (or choose Switch when prompted after add).
+
 ## Security model
 
 - Account metadata is stored in `~/.gitswitch/accounts.json`
-- PAT tokens are never written to the app config file
-- PATs are stored through Git's configured credential helper (Keychain, GCM, libsecret)
-- The app only runs local `git` and `ssh` commands
+- OAuth / device tokens are never written to the app config file
+- Tokens are stored through Git's configured credential helper (Keychain, GCM, libsecret)
+- Browser sign-in uses GitHub device login (no custom OAuth App setup for users)
+- The app only runs local `git` / `ssh` commands (and opens your browser for GitHub)
 
 ## Requirements
 
@@ -68,11 +96,13 @@ No external Python packages are required to run from source.
 ## Usage
 
 1. Launch the app.
-2. Add an account with its Git identity and optional authentication.
+2. Click **Add with GitHub** → approve in the browser once (or **Add manually** for SSH / identity-only / pasted PAT).
 3. Choose whether changes apply globally or to one repository.
-4. Select an account and click **Switch account**.
+4. Select an account and click **Switch account** (or accept the Switch prompt after add).
 
-For SSH accounts, optionally set a host alias if you use multiple SSH host entries. For HTTPS accounts, enter the provider host, username, and PAT once; the token is saved through your Git credential helper.
+For SSH accounts, optionally set a host alias if you use multiple SSH host entries.
+
+Use HTTPS remotes for accounts added with GitHub. This app does not switch `gh` login.
 
 ## Build standalone binaries locally
 
@@ -101,6 +131,8 @@ gitswitch/
   backend.py              # git/ssh/credential commands
   dialogs.py              # add/edit account dialog
   models.py               # account models and validation
+  oauth.py                # GitHub browser OAuth (PKCE + localhost)
+  github_signin.py        # one-click sign-in (gh or OAuth)
   store.py                # local persistence
   theme.py                # light/dark theme styles
 tests/                    # unit tests

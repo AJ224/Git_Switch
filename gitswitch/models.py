@@ -108,7 +108,10 @@ def validate_account(
         if not pat_username.strip():
             return ValidationResult(False, "PAT username is required.")
         if not pat_token.strip() and not existing_has_pat:
-            return ValidationResult(False, "PAT token is required.")
+            return ValidationResult(
+                False,
+                "Sign in with GitHub or paste a personal access token.",
+            )
         if pat_credentials_changed and not pat_token.strip():
             return ValidationResult(False, "Enter the PAT again after changing host or username.")
 

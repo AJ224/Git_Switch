@@ -6,7 +6,20 @@ from unittest.mock import patch
 
 from gitswitch.backend import GitBackend
 from gitswitch.models import Account, AuthMethod, validate_account
-from gitswitch.store import AccountStore, ThemePreferenceStore
+from gitswitch.github_signin import (
+    account_payload_from_oauth,
+    describe_signin_requirements,
+    resolve_github_client_id,
+    sign_in_with_github,
+)
+from gitswitch.oauth import (
+    OAuthError,
+    OAuthResult,
+    build_authorize_url,
+    exchange_code_for_token,
+    generate_pkce_pair,
+)
+from gitswitch.store import AccountStore, OAuthConfigStore, ThemePreferenceStore
 from gitswitch.theme import toggle_theme
 
 
@@ -120,6 +133,90 @@ class StoreTests(unittest.TestCase):
         ):
             self.assertEqual(ThemePreferenceStore().load(), "dark")
 
+    def test_oauth_client_id_round_trip(self) -> None:
+        oauth_file = self.config_dir / "oauth.json"
+        with patch("gitswitch.store.CONFIG_DIR", self.config_dir), patch(
+            "gitswitch.store.OAUTH_FILE", oauth_file
+        ):
+            store = OAuthConfigStore()
+            store.save_github_client_id("Iv1.example", callback_port=8741)
+            self.assertEqual(store.github_client_id(), "Iv1.example")
+            self.assertEqual(store.callback_port(), 8741)
+
+
+class OAuthHelperTests(unittest.TestCase):
+    def test_pkce_challenge_is_s256(self) -> None:
+        verifier, challenge = generate_pkce_pair()
+        self.assertTrue(verifier)
+        self.assertTrue(challenge)
+        self.assertNotIn("=", challenge)
+        self.assertNotEqual(verifier, challenge)
+
+    def test_authorize_url_includes_pkce_params(self) -> None:
+        url = build_authorize_url(
+            client_id="abc123",
+            redirect_uri="http://127.0.0.1:8741/callback",
+            state="state-value",
+            code_challenge="challenge-value",
+        )
+        self.assertIn("client_id=abc123", url)
+        self.assertIn("code_challenge=challenge-value", url)
+        self.assertIn("code_challenge_method=S256", url)
+        self.assertIn("state=state-value", url)
+
+    def test_exchange_code_rejects_error_payload(self) -> None:
+        with patch(
+            "gitswitch.oauth._post_form",
+            return_value={"error": "incorrect_client_credentials", "error_description": "Bad client"},
+        ):
+            with self.assertRaises(OAuthError) as ctx:
+                exchange_code_for_token(
+                    "abc",
+                    "code",
+                    "http://127.0.0.1:8741/callback",
+                    "verifier",
+                )
+        self.assertIn("Bad client", str(ctx.exception))
+
+
+class GitHubSignInHelperTests(unittest.TestCase):
+    def test_resolve_client_id_prefers_env(self) -> None:
+        with patch.dict("os.environ", {"GITSWITCH_GITHUB_CLIENT_ID": "env-id"}), patch(
+            "gitswitch.github_signin.DEFAULT_GITHUB_CLIENT_ID", ""
+        ), patch.object(OAuthConfigStore, "github_client_id", return_value="file-id"):
+            self.assertEqual(resolve_github_client_id(), "env-id")
+
+    def test_describe_requirements(self) -> None:
+        text = describe_signin_requirements()
+        self.assertIn("browser", text.lower())
+        self.assertIn("add with github", text.lower())
+
+    def test_account_payload_from_oauth(self) -> None:
+        result = OAuthResult(
+            username="octocat",
+            token="gho_example",
+            name="The Octocat",
+            email="octocat@users.noreply.github.com",
+        )
+        payload = account_payload_from_oauth(result)
+        self.assertEqual(payload["label"], "octocat")
+        self.assertEqual(payload["name"], "The Octocat")
+        self.assertEqual(payload["email"], "octocat@users.noreply.github.com")
+        self.assertEqual(payload["pat_host"], "github.com")
+        self.assertEqual(payload["pat_username"], "octocat")
+        self.assertEqual(payload["token"], "gho_example")
+
+    def test_sign_in_uses_device_flow(self) -> None:
+        fake = OAuthResult(username="octocat", token="gho_x", name="Octo", email="o@example.com")
+        with patch("gitswitch.github_signin.github_device_login", return_value=fake) as device_login, patch(
+            "gitswitch.github_signin.github_browser_login"
+        ) as oauth_login:
+            result, method = sign_in_with_github()
+        self.assertEqual(method, "device")
+        self.assertEqual(result.username, "octocat")
+        device_login.assert_called_once()
+        oauth_login.assert_not_called()
+
 
 class ThemeTests(unittest.TestCase):
     def test_toggle_theme(self) -> None:
@@ -184,6 +281,26 @@ class CredentialHelperTests(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertIn("credential helper", message.lower())
+
+    def test_activate_pat_sets_credential_username(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], cwd: str | None = None, input_text: str | None = None) -> tuple[bool, str]:
+            calls.append(cmd)
+            return True, ""
+
+        with patch.object(GitBackend, "run", side_effect=fake_run), patch(
+            "gitswitch.backend.SYSTEM", "Darwin"
+        ):
+            ok, message = GitBackend.activate_pat("github.com", "octocat", scope="global")
+
+        self.assertTrue(ok)
+        self.assertIn("octocat", message)
+        self.assertIn("https", message.lower())
+        self.assertEqual(
+            calls[0],
+            ["git", "config", "--global", "credential.https://github.com.username", "octocat"],
+        )
 
     def test_delete_pat_uses_git_credential_reject(self) -> None:
         calls: list[list[str]] = []

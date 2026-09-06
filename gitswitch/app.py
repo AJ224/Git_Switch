@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import os
+import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from gitswitch.backend import GitBackend
 from gitswitch.dialogs import AccountDialog
+from gitswitch.github_signin import (
+    account_payload_from_oauth,
+    describe_signin_requirements,
+    sign_in_with_github,
+)
 from gitswitch.models import Account, AuthMethod, Scope
+from gitswitch.oauth import OAuthError, OAuthResult
 from gitswitch.store import AccountStore, ThemePreferenceStore
 from gitswitch.theme import DARK, LIGHT, ThemeManager, toggle_theme
 
@@ -28,6 +35,9 @@ class GitSwitcherApp(tk.Tk):
         self.theme_name = self.theme_store.load()
         self.theme = ThemeManager(self)
         self.theme.apply(DARK if self.theme_name == "dark" else LIGHT)
+        self._github_signin_in_progress = False
+        self._github_signin_cancel = threading.Event()
+        self._github_signin_thread: threading.Thread | None = None
 
         self.repo_path = tk.StringVar(value=os.getcwd())
         self.scope = tk.StringVar(value="global")
@@ -60,7 +70,7 @@ class GitSwitcherApp(tk.Tk):
         ttk.Label(header_copy, text="Git Account Switcher", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             header_copy,
-            text="Switch Git identity, SSH keys, and HTTPS credentials from one place.",
+            text="Add a GitHub account in one click, then switch identity and push/pull credentials.",
             style="Subtitle.TLabel",
         ).pack(anchor="w", pady=(2, 0))
         self.theme_button = ttk.Button(header, text="Dark mode", command=self._toggle_theme)
@@ -117,14 +127,28 @@ class GitSwitcherApp(tk.Tk):
 
         left_actions = ttk.Frame(left, style=CARD_FRAME)
         left_actions.pack(fill="x", pady=(10, 0))
-        ttk.Button(left_actions, text="Add account", command=self._add_account).grid(
-            row=0, column=0, sticky="ew"
+        self.github_add_btn = ttk.Button(
+            left_actions,
+            text="Add with GitHub",
+            style="Accent.TButton",
+            command=self._add_github_account,
+        )
+        self.github_add_btn.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+        ttk.Button(left_actions, text="Add manually", command=self._add_account).grid(
+            row=1, column=0, sticky="ew"
         )
         ttk.Button(left_actions, text="Refresh", command=self._refresh_all).grid(
-            row=0, column=1, sticky="ew", padx=(6, 0)
+            row=1, column=1, sticky="ew", padx=(6, 0)
         )
         for column in range(2):
             left_actions.columnconfigure(column, weight=1)
+        ttk.Label(
+            left,
+            text=describe_signin_requirements(),
+            style="CardMuted.TLabel",
+            wraplength=260,
+            justify="left",
+        ).pack(anchor="w", pady=(8, 0))
 
         right = ttk.Frame(body, style=CARD_FRAME, padding=12)
         right.pack(side="left", fill="both", expand=True, padx=(12, 0))
@@ -132,7 +156,7 @@ class GitSwitcherApp(tk.Tk):
 
         self.empty_state = ttk.Label(
             right,
-            text="No account selected.\nAdd an account to get started.",
+            text="No account selected.\nClick Add with GitHub to sign in from your browser.",
             style="CardMuted.TLabel",
             justify="left",
         )
@@ -281,7 +305,11 @@ class GitSwitcherApp(tk.Tk):
             store = self.backend.credential_storage_label()
             status = f"Saved in {store}" if account.has_pat else "Not saved"
             return "HTTPS / PAT", f"Host: {account.pat_host or '—'}\nUsername: {account.pat_username or '—'}\nPAT: {status}"
-        return "Identity only", "No SSH key or PAT configured."
+        return (
+            "Identity only",
+            "Updates commit author (user.name / user.email) only.\n"
+            "Does NOT change push/pull auth — add SSH or HTTPS / PAT for repo access.",
+        )
 
     def _on_select(self, _event: object | None = None) -> None:
         account = self._selected_account()
@@ -322,6 +350,150 @@ class GitSwitcherApp(tk.Tk):
         account.pat_host = self.backend.normalize_host(account.pat_host)
         account.has_pat = True
         return True
+
+    def _reset_github_signin_ui(self, status: str | None = None) -> None:
+        self._github_signin_in_progress = False
+        self._github_signin_thread = None
+        try:
+            self.github_add_btn.configure(state="normal")
+        except tk.TclError:
+            return
+        if status is not None:
+            self.status_var.set(status)
+
+    def _cancel_github_signin(self) -> None:
+        self._github_signin_cancel.set()
+        self.status_var.set("Cancelling GitHub sign-in…")
+
+    def _add_github_account(self) -> None:
+        if self._github_signin_in_progress:
+            retry = messagebox.askyesno(
+                "Sign-in in progress",
+                "A GitHub sign-in is already running.\n\n"
+                "Cancel it and start again?",
+            )
+            if not retry:
+                return
+            self._cancel_github_signin()
+            self._reset_github_signin_ui("Cancelling previous sign-in…")
+            # Give the worker a moment to exit cleanly before restarting.
+            self.after(500, self._add_github_account)
+            return
+
+        self._github_signin_cancel = threading.Event()
+        self._github_signin_in_progress = True
+        self.github_add_btn.configure(state="disabled")
+        self.status_var.set("Starting GitHub sign-in…")
+        self.update_idletasks()
+
+        cancel_event = self._github_signin_cancel
+        code_prompted = {"shown": False}
+
+        def on_status(message: str) -> None:
+            def apply(msg: str = message) -> None:
+                self.status_var.set(msg)
+                if msg.startswith("Code ") and not code_prompted["shown"]:
+                    code_prompted["shown"] = True
+                    # Visible confirmation so the click never feels like a no-op.
+                    code = msg.split("—", 1)[0].replace("Code", "").strip()
+                    messagebox.showinfo(
+                        "Approve in browser",
+                        f"A browser window should open for GitHub.\n\n"
+                        f"If asked, enter this code:\n\n{code}\n\n"
+                        "Then click Approve and return here.",
+                    )
+
+            self.after(0, apply)
+
+        def worker() -> None:
+            try:
+                result, _method = sign_in_with_github(
+                    on_status=on_status,
+                    cancel_event=cancel_event,
+                )
+                self.after(0, lambda r=result: self._finish_github_account(r))
+            except OAuthError as exc:
+                message = str(exc)
+                self.after(0, lambda m=message: self._fail_github_account(m))
+            except Exception as exc:  # noqa: BLE001
+                message = f"{type(exc).__name__}: {exc}"
+                self.after(0, lambda m=message: self._fail_github_account(m))
+            finally:
+                # Always unlock the UI even if finish/fail callbacks fail.
+                self.after(0, lambda: self._reset_github_signin_ui())
+
+        self._github_signin_thread = threading.Thread(target=worker, daemon=True)
+        self._github_signin_thread.start()
+
+    def _finish_github_account(self, result: OAuthResult) -> None:
+        try:
+            self._reset_github_signin_ui("Saving GitHub account…")
+            payload = account_payload_from_oauth(result)
+            if not payload["email"]:
+                messagebox.showwarning(
+                    "Email missing",
+                    "GitHub did not return a public/primary email. "
+                    "The account was added — edit it to set user.email before committing.",
+                )
+
+            account = Account(
+                label=payload["label"],
+                name=payload["name"],
+                email=payload["email"] or f"{payload['pat_username']}@users.noreply.github.com",
+                auth_method=AuthMethod.PAT,
+                pat_host=payload["pat_host"],
+                pat_username=payload["pat_username"],
+                has_pat=False,
+            )
+            if not self._prepare_pat(account, payload["token"]):
+                self.status_var.set("GitHub sign-in succeeded, but saving the token failed.")
+                return
+
+            # Update existing GitHub username account instead of duplicating.
+            existing = next(
+                (
+                    item
+                    for item in self.store.load()
+                    if item.auth_method == AuthMethod.PAT
+                    and item.pat_username.lower() == account.pat_username.lower()
+                    and item.pat_host == account.pat_host
+                ),
+                None,
+            )
+            if existing:
+                account.id = existing.id
+                self.store.update(existing.id, account)
+                saved = account
+                action = "Updated"
+            else:
+                saved = self.store.add(account)
+                action = "Added"
+
+            self._refresh_accounts(select_id=saved.id)
+            self.status_var.set(f"{action} GitHub account '{saved.label}'.")
+            switch_now = messagebox.askyesno(
+                "GitHub account ready",
+                f"{action} '{saved.label}'.\n\n"
+                "Signed in once — you will not need to log in again to switch later.\n\n"
+                "Switch to this account now for commits and HTTPS push/pull?\n"
+                "(Does not change GitHub CLI / gh login.)",
+            )
+            if switch_now:
+                self._switch_account()
+            else:
+                self.status_var.set(
+                    f"{action} '{saved.label}'. Select it and click Switch account when ready."
+                )
+        except Exception as exc:  # noqa: BLE001
+            self._reset_github_signin_ui("GitHub sign-in failed while saving the account.")
+            messagebox.showerror("GitHub sign-in failed", str(exc))
+
+    def _fail_github_account(self, message: str) -> None:
+        self._reset_github_signin_ui("GitHub sign-in cancelled or failed.")
+        if "cancelled" in message.lower():
+            self.status_var.set("GitHub sign-in cancelled.")
+            return
+        messagebox.showerror("GitHub sign-in failed", message)
 
     def _add_account(self) -> None:
         dialog = AccountDialog(self)
@@ -395,7 +567,13 @@ class GitSwitcherApp(tk.Tk):
     ) -> tuple[bool, str]:
         if account.auth_method == AuthMethod.SSH and account.ssh_key:
             return self.backend.ssh_add_key(account.ssh_key)
-        if account.auth_method == AuthMethod.PAT and account.has_pat:
+        if account.auth_method == AuthMethod.PAT:
+            if not account.has_pat:
+                return (
+                    False,
+                    "No HTTPS token saved for this account. "
+                    "Use Add with GitHub again or edit the account and paste a token.",
+                )
             return self.backend.activate_pat(
                 account.pat_host,
                 account.pat_username,
@@ -407,10 +585,24 @@ class GitSwitcherApp(tk.Tk):
     @staticmethod
     def _switch_summary(account: Account, scope: Scope, auth_ok: bool) -> str:
         summary = f"Switched to '{account.label}' ({scope})."
-        if account.auth_method == AuthMethod.SSH and account.ssh_key:
-            summary += f" SSH: {'OK' if auth_ok else 'FAILED'}."
-        if account.auth_method == AuthMethod.PAT and account.has_pat:
-            summary += f" PAT: {'OK' if auth_ok else 'FAILED'}."
+        if account.auth_method == AuthMethod.NONE:
+            summary += (
+                " Identity only: commit author updated. "
+                "Push/pull auth was not changed — configure SSH or HTTPS / PAT for repo access."
+            )
+        elif account.auth_method == AuthMethod.SSH and account.ssh_key:
+            summary += (
+                f" Commit author updated. SSH push/pull: {'OK' if auth_ok else 'FAILED'}."
+            )
+        elif account.auth_method == AuthMethod.PAT:
+            if auth_ok:
+                summary += (
+                    " Commit author updated. HTTPS push/pull credentials activated "
+                    f"for '{account.pat_username}' "
+                    "(use https:// remotes; gh CLI is unchanged)."
+                )
+            else:
+                summary += " Commit author updated, but HTTPS credentials were NOT activated."
         return summary
 
     def _test_ssh(self) -> None:

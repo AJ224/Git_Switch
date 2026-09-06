@@ -190,7 +190,14 @@ class GitBackend:
         cwd = repo_path if scope == "local" else None
         flag = "--local" if scope == "local" else "--global"
         key = f"credential.https://{normalized_host}.username"
-        return cls.run(["git", "config", flag, key, username], cwd=cwd)
+        ok, output = cls.run(["git", "config", flag, key, username], cwd=cwd)
+        if not ok:
+            return False, output or "Could not activate HTTPS credentials."
+        return (
+            True,
+            f"HTTPS push/pull will use '{username}' on {normalized_host} "
+            f"(via {cls.credential_storage_label()}).",
+        )
 
     @classmethod
     def delete_pat(cls, host: str, username: str) -> None:
