@@ -27,7 +27,7 @@ Publisher ID **`gitswitch`** must match `package.json`.
 4. Workflow publishes with `vsce publish --oidc` (no PAT).
 
 Marketplace URL:  
-`https://marketplace.visualstudio.com/items?itemName=gitswitch.git-switch`
+`https://marketplace.visualstudio.com/items?itemName=gitswitch.git-account-switch`
 
 ### Alternative: PAT from your machine
 
