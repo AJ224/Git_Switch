@@ -40,7 +40,7 @@ jobs:
       - name: Upload VSIX
         uses: actions/upload-artifact@v5
         with:
-          name: git-switch-vsix
+          name: git-switch-accounts-vsix
           path: extension/*.vsix
 
       # Marketplace Trusted Publishing (OIDC — no VSCE_PAT)

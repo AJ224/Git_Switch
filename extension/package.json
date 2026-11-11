@@ -1,5 +1,5 @@
 {
-  "name": "git-account-switch",
+  "name": "git-switch-accounts",
   "displayName": "Git Switch",
   "description": "Switch and add Git accounts from the status bar — identity, SSH, and HTTPS/PAT.",
   "version": "0.1.0",
