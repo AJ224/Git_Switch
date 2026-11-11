@@ -19,6 +19,13 @@ from gitswitch.oauth import (
     exchange_code_for_token,
     generate_pkce_pair,
 )
+from gitswitch.service import (
+    match_account,
+    resolve_scope,
+    save_github_account,
+    switch_account,
+    switch_summary,
+)
 from gitswitch.store import AccountStore, OAuthConfigStore, ThemePreferenceStore
 from gitswitch.theme import toggle_theme
 
@@ -325,6 +332,105 @@ class CredentialHelperTests(unittest.TestCase):
             self.assertEqual(GitBackend.credential_storage_label(), "macOS Keychain")
         with patch("gitswitch.backend.SYSTEM", "Windows"):
             self.assertEqual(GitBackend.credential_storage_label(), "Git Credential Manager")
+
+
+class ServiceTests(unittest.TestCase):
+    def test_match_account_by_email(self) -> None:
+        accounts = [
+            Account(label="Work", name="A", email="a@example.com"),
+            Account(label="Home", name="B", email="b@example.com"),
+        ]
+        matched = match_account("B@Example.com", accounts)
+        self.assertIsNotNone(matched)
+        assert matched is not None
+        self.assertEqual(matched.label, "Home")
+
+    def test_resolve_scope_prefers_local_repo(self) -> None:
+        with patch.object(GitBackend, "is_git_repo", return_value=True):
+            scope, repo = resolve_scope("/tmp/project")
+        self.assertEqual(scope, "local")
+        self.assertEqual(repo, "/tmp/project")
+
+    def test_resolve_scope_falls_back_to_global(self) -> None:
+        with patch.object(GitBackend, "is_git_repo", return_value=False):
+            scope, repo = resolve_scope("/tmp/not-a-repo")
+        self.assertEqual(scope, "global")
+        self.assertIsNone(repo)
+
+    def test_switch_account_sets_identity_and_pat(self) -> None:
+        account = Account(
+            label="Work",
+            name="Dev",
+            email="dev@example.com",
+            auth_method=AuthMethod.PAT,
+            pat_host="github.com",
+            pat_username="dev",
+            has_pat=True,
+        )
+        calls: list[str] = []
+
+        class FakeBackend:
+            @staticmethod
+            def is_git_repo(path: str | None) -> bool:
+                return True
+
+            @classmethod
+            def set_identity(cls, name: str, email: str, scope: str = "global", repo_path: str | None = None):
+                calls.append(f"identity:{name}:{email}:{scope}")
+                return True, "ok"
+
+            @classmethod
+            def activate_pat(cls, host: str, username: str, scope: str = "global", repo_path: str | None = None):
+                calls.append(f"pat:{username}:{scope}")
+                return True, "activated"
+
+            @classmethod
+            def ssh_add_key(cls, key_path: str):
+                return True, ""
+
+        result = switch_account(account, scope="local", repo_path="/repo", backend=FakeBackend)  # type: ignore[arg-type]
+        self.assertTrue(result.ok)
+        self.assertIn("Work", result.summary)
+        self.assertEqual(calls, ["identity:Dev:dev@example.com:local", "pat:dev:local"])
+
+    def test_switch_summary_identity_only(self) -> None:
+        account = Account(label="Personal", name="Me", email="me@example.com")
+        text = switch_summary(account, "global", True)
+        self.assertIn("Identity only", text)
+
+    def test_save_github_account_stores_pat(self) -> None:
+        oauth = OAuthResult(
+            username="octocat",
+            token="gho_secret",
+            name="The Octocat",
+            email="octocat@example.com",
+        )
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        config_dir = Path(temp_dir.name) / ".gitswitch"
+        config_file = config_dir / "accounts.json"
+
+        class FakeBackend:
+            @staticmethod
+            def normalize_host(host: str) -> str:
+                return host
+
+            @classmethod
+            def store_pat(cls, host: str, username: str, token: str):
+                return True, "saved"
+
+        with patch("gitswitch.store.CONFIG_DIR", config_dir), patch(
+            "gitswitch.store.CONFIG_FILE", config_file
+        ):
+            store = AccountStore()
+            result = save_github_account(oauth, store=store, backend=FakeBackend)  # type: ignore[arg-type]
+            saved = store.load()
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.action, "Added")
+        self.assertEqual(result.account.label if result.account else "", "octocat")
+        self.assertEqual(len(saved), 1)
+        self.assertTrue(saved[0].has_pat)
 
 
 if __name__ == "__main__":

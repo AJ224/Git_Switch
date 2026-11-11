@@ -25,7 +25,7 @@ jobs:
         run: pyinstaller git_account_switcher.spec
 
       - name: Archive macOS app
-        run: cd dist && zip -r ../GitAccountSwitcher-macOS.zip "Git Account Switcher.app"
+        run: cd dist && zip -r ../GitAccountSwitcher-macOS.zip "Git Switch.app"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -45,12 +45,12 @@ jobs:
         run: pip install pyinstaller
 
       - name: Build Windows executable
-        run: pyinstaller --onefile --windowed --name GitAccountSwitcher --hidden-import=tkinter --hidden-import=_tkinter git_account_switcher.py
+        run: pyinstaller --onefile --windowed --name GitSwitch --icon=assets/GitSwitch.ico --add-data "assets/icon.png;assets" --hidden-import=tkinter --hidden-import=_tkinter git_account_switcher.py
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: dist/GitAccountSwitcher.exe
+          path: dist/GitSwitch.exe
 
   build-linux:
     runs-on: ubuntu-latest
@@ -68,12 +68,12 @@ jobs:
         run: pip install pyinstaller
 
       - name: Build Linux executable
-        run: pyinstaller --onefile --windowed --name GitAccountSwitcher --hidden-import=tkinter --hidden-import=_tkinter git_account_switcher.py
+        run: pyinstaller --onefile --windowed --name GitSwitch --add-data "assets/icon.png:assets" --hidden-import=tkinter --hidden-import=_tkinter git_account_switcher.py
 
       - uses: actions/upload-artifact@v4
         with:
           name: linux
-          path: dist/GitAccountSwitcher
+          path: dist/GitSwitch
 
   publish:
     needs: [build-macos, build-windows, build-linux]
@@ -88,5 +88,5 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/macos/GitAccountSwitcher-macOS.zip
-            artifacts/windows/GitAccountSwitcher.exe
-            artifacts/linux/GitAccountSwitcher
+            artifacts/windows/GitSwitch.exe
+            artifacts/linux/GitSwitch

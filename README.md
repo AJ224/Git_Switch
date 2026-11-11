@@ -1,8 +1,10 @@
-# Git Account Switcher
+# Git Switch
 
-A lightweight desktop app for switching between Git identities, SSH keys, and HTTPS personal access tokens (PATs) without editing config files by hand.
+<p align="center">
+  <img src="docs/logo.png" alt="Git Switch" width="180" />
+</p>
 
-![App screenshot placeholder](docs/screenshot-placeholder.png)
+A lightweight desktop app (and VS Code / Cursor extension) for switching between Git identities, SSH keys, and HTTPS personal access tokens (PATs) without editing config files by hand.
 
 ## Features
 
@@ -110,8 +112,8 @@ Install PyInstaller in a virtual environment, then build:
 
 ```bash
 pip install pyinstaller
-pyinstaller git_account_switcher.spec          # macOS .app bundle
-pyinstaller --onefile --windowed --name GitAccountSwitcher git_account_switcher.py  # Windows/Linux
+pyinstaller git_account_switcher.spec   # macOS .app (uses assets/GitSwitch.icns)
+# Windows / Linux one-file builds are handled by the release workflow (icons included).
 ```
 
 Release artifacts are uploaded automatically by `.github/workflows/release.yml` when you push a tag:
@@ -121,6 +123,16 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
+## VS Code / Cursor extension
+
+Day-to-day switching lives in the editor. Account setup stays in the desktop app.
+
+1. Add accounts once with **Add with GitHub** in the desktop app.
+2. Open `extension/`, run `npm install && npm run compile`, then install from that folder (or F5).
+3. Click the status bar account → pick → done.
+
+See [extension/README.md](extension/README.md).
+
 ## Project structure
 
 ```text
@@ -129,12 +141,15 @@ git_account_switcher.spec # PyInstaller config (macOS)
 gitswitch/
   app.py                  # main window
   backend.py              # git/ssh/credential commands
+  service.py              # shared switch/list/status (UI-free)
+  __main__.py             # JSON bridge for the IDE extension
   dialogs.py              # add/edit account dialog
   models.py               # account models and validation
   oauth.py                # GitHub browser OAuth (PKCE + localhost)
-  github_signin.py        # one-click sign-in (gh or OAuth)
+  github_signin.py        # one-click sign-in (device login / OAuth)
   store.py                # local persistence
   theme.py                # light/dark theme styles
+extension/                # VS Code / Cursor extension
 tests/                    # unit tests
 .github/workflows/        # CI and release automation
 ```

@@ -1,12 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
+from pathlib import Path
 
 block_cipher = None
+ROOT = Path(SPEC).parent.resolve()
+ICON_ICNS = ROOT / "assets" / "GitSwitch.icns"
+ICON_ICO = ROOT / "assets" / "GitSwitch.ico"
+ICON_PNG = ROOT / "assets" / "icon.png"
+
+datas = []
+if ICON_PNG.exists():
+    datas.append((str(ICON_PNG), "assets"))
 
 a = Analysis(
     ["git_account_switcher.py"],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=datas,
     hiddenimports=["tkinter", "_tkinter"],
     hookspath=[],
     hooksconfig={},
@@ -26,7 +35,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="GitAccountSwitcher",
+    name="GitSwitch",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -39,11 +48,12 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(ICON_ICO) if ICON_ICO.exists() else None,
 )
 
 app = BUNDLE(
     exe,
-    name="Git Account Switcher.app",
-    icon=None,
+    name="Git Switch.app",
+    icon=str(ICON_ICNS) if ICON_ICNS.exists() else None,
     bundle_identifier="com.gitswitch.app",
 )

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from gitswitch.backend import GitBackend
@@ -14,6 +16,7 @@ from gitswitch.github_signin import (
 )
 from gitswitch.models import Account, AuthMethod, Scope
 from gitswitch.oauth import OAuthError, OAuthResult
+from gitswitch.service import switch_account
 from gitswitch.store import AccountStore, ThemePreferenceStore
 from gitswitch.theme import DARK, LIGHT, ThemeManager, toggle_theme
 
@@ -22,10 +25,19 @@ CARD_LABEL = "Card.TLabel"
 SECTION_LABEL = "Section.TLabel"
 
 
+def _asset_path(*parts: str) -> Path:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        base = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    else:
+        base = Path(__file__).resolve().parent.parent
+    return base.joinpath(*parts)
+
+
 class GitSwitcherApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Git Account Switcher")
+        self.title("Git Switch")
+        self._set_window_icon()
         self._set_initial_geometry()
 
         self.store = AccountStore()
@@ -49,6 +61,16 @@ class GitSwitcherApp(tk.Tk):
         self._refresh_accounts()
         self._refresh_current_identity()
 
+    def _set_window_icon(self) -> None:
+        icon_png = _asset_path("assets", "icon.png")
+        if not icon_png.exists():
+            return
+        try:
+            self._window_icon = tk.PhotoImage(file=str(icon_png))
+            self.iconphoto(True, self._window_icon)
+        except tk.TclError:
+            pass
+
     def _set_initial_geometry(self) -> None:
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
@@ -67,7 +89,7 @@ class GitSwitcherApp(tk.Tk):
         header.pack(fill="x")
         header_copy = ttk.Frame(header)
         header_copy.pack(side="left", fill="x", expand=True)
-        ttk.Label(header_copy, text="Git Account Switcher", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(header_copy, text="Git Switch", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             header_copy,
             text="Add a GitHub account in one click, then switch identity and push/pull credentials.",
@@ -543,67 +565,15 @@ class GitSwitcherApp(tk.Tk):
 
         scope: Scope = "local" if self.scope.get() == "local" else "global"
         repo = self.repo_path.get() if scope == "local" else None
-        if scope == "local" and not self.backend.is_git_repo(repo):
-            messagebox.showerror("Not a git repo", f"'{repo}' is not a git repository.")
+        result = switch_account(account, scope=scope, repo_path=repo, backend=self.backend)
+        if not result.ok:
+            messagebox.showerror("Switch failed", result.summary)
             return
 
-        ok, message = self.backend.set_identity(account.name, account.email, scope=scope, repo_path=repo)
-        if not ok:
-            messagebox.showerror("Switch failed", message)
-            return
-
-        auth_ok, auth_message = self._activate_authentication(account, scope, repo)
-        summary = self._switch_summary(account, scope, auth_ok)
         self._refresh_current_identity()
-        self.status_var.set(summary)
-        details = f"{summary}\n{auth_message}" if auth_message else summary
+        self.status_var.set(result.summary)
+        details = f"{result.summary}\n{result.detail}" if result.detail else result.summary
         messagebox.showinfo("Account switched", details)
-
-    def _activate_authentication(
-        self,
-        account: Account,
-        scope: Scope,
-        repo: str | None,
-    ) -> tuple[bool, str]:
-        if account.auth_method == AuthMethod.SSH and account.ssh_key:
-            return self.backend.ssh_add_key(account.ssh_key)
-        if account.auth_method == AuthMethod.PAT:
-            if not account.has_pat:
-                return (
-                    False,
-                    "No HTTPS token saved for this account. "
-                    "Use Add with GitHub again or edit the account and paste a token.",
-                )
-            return self.backend.activate_pat(
-                account.pat_host,
-                account.pat_username,
-                scope=scope,
-                repo_path=repo,
-            )
-        return True, ""
-
-    @staticmethod
-    def _switch_summary(account: Account, scope: Scope, auth_ok: bool) -> str:
-        summary = f"Switched to '{account.label}' ({scope})."
-        if account.auth_method == AuthMethod.NONE:
-            summary += (
-                " Identity only: commit author updated. "
-                "Push/pull auth was not changed — configure SSH or HTTPS / PAT for repo access."
-            )
-        elif account.auth_method == AuthMethod.SSH and account.ssh_key:
-            summary += (
-                f" Commit author updated. SSH push/pull: {'OK' if auth_ok else 'FAILED'}."
-            )
-        elif account.auth_method == AuthMethod.PAT:
-            if auth_ok:
-                summary += (
-                    " Commit author updated. HTTPS push/pull credentials activated "
-                    f"for '{account.pat_username}' "
-                    "(use https:// remotes; gh CLI is unchanged)."
-                )
-            else:
-                summary += " Commit author updated, but HTTPS credentials were NOT activated."
-        return summary
 
     def _test_ssh(self) -> None:
         account = self._selected_account()

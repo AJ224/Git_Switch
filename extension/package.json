@@ -1,0 +1,83 @@
+{
+  "name": "git-switch",
+  "displayName": "Git Switch",
+  "description": "Switch and add Git accounts from the status bar — identity, SSH, and HTTPS/PAT.",
+  "version": "0.1.0",
+  "publisher": "gitswitch",
+  "icon": "media/icon.png",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AJ224/Git_Switch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AJ224/Git_Switch/issues"
+  },
+  "homepage": "https://github.com/AJ224/Git_Switch#readme",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "SCM Providers"
+  ],
+  "keywords": [
+    "git",
+    "github",
+    "account",
+    "switch",
+    "identity",
+    "ssh",
+    "pat"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "gitSwitch.switchAccount",
+        "title": "Git Switch: Switch Account"
+      },
+      {
+        "command": "gitSwitch.addAccount",
+        "title": "Git Switch: Add Account (GitHub)"
+      },
+      {
+        "command": "gitSwitch.refresh",
+        "title": "Git Switch: Refresh"
+      }
+    ],
+    "configuration": {
+      "title": "Git Switch",
+      "properties": {
+        "gitSwitch.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Optional Python for the local gitswitch package bridge. Not required for marketplace installs."
+        },
+        "gitSwitch.packageRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to the Git_Switch repo (contains gitswitch/). Leave empty to use the built-in engine."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --no-dependencies",
+    "publish:vscode": "vsce publish --no-dependencies",
+    "publish:ovsx": "ovsx publish --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^4.1.0",
+    "ovsx": "^0.10.1",
+    "typescript": "^5.3.3"
+  }
+}
