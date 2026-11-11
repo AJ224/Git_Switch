@@ -16,6 +16,9 @@ jobs:
     defaults:
       run:
         working-directory: extension
+    env:
+      # Map secret → env so `if` can check it (secrets.* is not allowed in if)
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,13 +43,11 @@ jobs:
           name: git-switch-vsix
           path: extension/*.vsix
 
-      # Uses Marketplace Trusted Publishing (no VSCE_PAT needed)
+      # Marketplace Trusted Publishing (OIDC — no VSCE_PAT)
       - name: Publish to VS Code Marketplace
         run: npx vsce publish --no-dependencies --oidc
 
-      # Open VSX still needs a token (Cursor). Optional.
+      # Cursor / Open VSX (optional — set repo secret OVSX_PAT)
       - name: Publish to Open VSX
-        if: ${{ secrets.OVSX_PAT != '' }}
-        run: npx ovsx publish --no-dependencies -p ${{ secrets.OVSX_PAT }}
-        env:
-          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        if: env.OVSX_PAT != ''
+        run: npx ovsx publish --no-dependencies -p "$OVSX_PAT"
