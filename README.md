@@ -1,171 +1,47 @@
 # Git Switch
 
 <p align="center">
-  <img src="docs/logo.png" alt="Git Switch" width="180" />
+  <img src="docs/logo.png" alt="Git Switch" width="160" />
 </p>
 
-A lightweight desktop app (and VS Code / Cursor extension) for switching between Git identities, SSH keys, and HTTPS personal access tokens (PATs) without editing config files by hand.
+<p align="center">
+  Switch Git accounts in one click — commit author, SSH, or HTTPS.
+</p>
 
-## Features
+## Install
 
-- Save multiple Git accounts with label, `user.name`, and `user.email`
-- Switch identity globally or for a single repository
-- Optional SSH key activation via `ssh-add`
-- **Add with GitHub** — browser approve via GitHub device login (no Client ID / PAT / `gh` setup)
-- Optional HTTPS PAT storage through native Git credential helpers
-- Light and dark themes with persisted preference
-- Local-only storage in `~/.gitswitch/`
+**Editor (recommended)** — [VS Code / Cursor extension](https://marketplace.visualstudio.com/items?itemName=gitswitch.git-switch-accounts)
 
-## Important: Identity only vs SSH / PAT
-
-| Auth mode | What switch changes | What it does **not** change |
-| --- | --- | --- |
-| **Identity only** | Commit author (`user.name` / `user.email`) | Push/pull authentication |
-| **SSH key** | Commit author + loads the SSH key | — |
-| **HTTPS / PAT** | Commit author + activates that HTTPS username/PAT | — |
-
-**Identity only is not enough for private repos.** If push/pull fails with “repository not found” after switching, the account likely has no SSH key or PAT configured — Git is still using another account’s credentials.
-
-This app also does **not** switch GitHub CLI (`gh`) login. Use `gh auth switch` separately if you use `gh`.
-
-## GitHub browser sign-in
-
-Click **Add with GitHub** → approve in the browser → done.
-
-Uses GitHub's official device login (browser + one-time code). No OAuth App setup, Client ID, Homepage URL, PAT paste, or GitHub CLI required.
-
-- Sign in **once per GitHub account** (token is saved in your OS credential store)
-- Click **Switch account** anytime after that — no browser login again
-- Switch updates **commit author** and **HTTPS push/pull** credentials
-- Switch does **not** change GitHub CLI (`gh`) login — use `gh auth switch` separately if needed
-- HTTPS remotes (`https://github.com/...`) use the stored token; SSH remotes need an SSH account instead
-
-Then select the account and click **Switch account** (or choose Switch when prompted after add).
-
-## Security model
-
-- Account metadata is stored in `~/.gitswitch/accounts.json`
-- OAuth / device tokens are never written to the app config file
-- Tokens are stored through Git's configured credential helper (Keychain, GCM, libsecret)
-- Browser sign-in uses GitHub device login (no custom OAuth App setup for users)
-- The app only runs local `git` / `ssh` commands (and opens your browser for GitHub)
-
-## Requirements
-
-- Python 3.8+ (for source installs)
-- Git installed and available on `PATH`
-- Tkinter (usually bundled with Python)
-- A Git credential helper for PAT storage
-- Optional: running `ssh-agent` for SSH key switching
-
-### Platform setup
-
-| Platform | Identity + SSH | PAT storage |
-| --- | --- | --- |
-| **macOS** | Supported | macOS Keychain via `credential.helper osxkeychain` |
-| **Windows** | Supported | Git Credential Manager via `credential.helper manager` |
-| **Linux** | Supported | libsecret or GCM via Git credential helper |
-
-**macOS** — Keychain helper is usually preconfigured with Git.
-
-**Windows** — Install [Git for Windows](https://gitforwindows.org/) with Git Credential Manager enabled.
-
-**Linux** — Install Tkinter and libsecret support if needed:
-
-```bash
-sudo apt install python3-tk git-credential-libsecret
-git config --global credential.helper /usr/share/git-core/contrib/credential/libsecret/git-credential-libsecret
-```
-
-## Download binaries
-
-Tagged releases include standalone builds for macOS, Windows, and Linux:
-
-1. Open [GitHub Releases](../../releases).
-2. Download the asset for your platform.
-3. Run the app. Git must still be installed on the machine.
-
-Release builds are produced automatically when a version tag like `v1.0.0` is pushed.
-
-## Run from source
+**Desktop app** — download from [Releases](https://github.com/AJ224/Git_Switch/releases), or:
 
 ```bash
 python3 git_account_switcher.py
 ```
 
-No external Python packages are required to run from source.
+Requires Git on your PATH. On Linux you may need `python3-tk`.
 
-## Usage
+## How to use
 
-1. Launch the app.
-2. Click **Add with GitHub** → approve in the browser once (or **Add manually** for SSH / identity-only / pasted PAT).
-3. Choose whether changes apply globally or to one repository.
-4. Select an account and click **Switch account** (or accept the Switch prompt after add).
+1. **Add with GitHub** → approve in the browser (once per account)
+2. Click the status bar (or **Switch account** in the app)
+3. Pick an account → done
 
-For SSH accounts, optionally set a host alias if you use multiple SSH host entries.
+Tokens stay in your OS credential store (Keychain / GCM / libsecret), not in app config.
 
-Use HTTPS remotes for accounts added with GitHub. This app does not switch `gh` login.
+## Notes
 
-## Build standalone binaries locally
+| Mode | Updates commits | Updates push/pull |
+| --- | --- | --- |
+| Identity only | Yes | No |
+| SSH | Yes | Yes (`ssh-add`) |
+| HTTPS / GitHub | Yes | Yes (credential helper) |
 
-Install PyInstaller in a virtual environment, then build:
+- Prefer **HTTPS** remotes for accounts added with GitHub
+- Does **not** switch `gh` CLI login — use `gh auth switch` separately
+- Local data: `~/.gitswitch/`
 
-```bash
-pip install pyinstaller
-pyinstaller git_account_switcher.spec   # macOS .app (uses assets/GitSwitch.icns)
-# Windows / Linux one-file builds are handled by the release workflow (icons included).
-```
+## Contributing
 
-Release artifacts are uploaded automatically by `.github/workflows/release.yml` when you push a tag:
+Want to hack on the app or extension? See **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-## VS Code / Cursor extension
-
-Day-to-day switching lives in the editor. Account setup stays in the desktop app.
-
-1. Add accounts once with **Add with GitHub** in the desktop app.
-2. Open `extension/`, run `npm install && npm run compile`, then install from that folder (or F5).
-3. Click the status bar account → pick → done.
-
-See [extension/README.md](extension/README.md).
-
-## Project structure
-
-```text
-git_account_switcher.py   # launcher
-git_account_switcher.spec # PyInstaller config (macOS)
-gitswitch/
-  app.py                  # main window
-  backend.py              # git/ssh/credential commands
-  service.py              # shared switch/list/status (UI-free)
-  __main__.py             # JSON bridge for the IDE extension
-  dialogs.py              # add/edit account dialog
-  models.py               # account models and validation
-  oauth.py                # GitHub browser OAuth (PKCE + localhost)
-  github_signin.py        # one-click sign-in (device login / OAuth)
-  store.py                # local persistence
-  theme.py                # light/dark theme styles
-extension/                # VS Code / Cursor extension
-tests/                    # unit tests
-.github/workflows/        # CI and release automation
-```
-
-## Development
-
-Run tests:
-
-```bash
-python3 -m unittest discover -s tests
-```
-
-CI runs the same tests on macOS, Windows, and Ubuntu for every push and pull request.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
-
-## License
-
-MIT License. See [LICENSE](LICENSE).
+MIT License — see [LICENSE](LICENSE).

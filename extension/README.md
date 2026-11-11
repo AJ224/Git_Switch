@@ -1,42 +1,23 @@
-# Git Switch (VS Code / Cursor)
+# Git Switch
 
-One-click Git account switching from the status bar.
+Switch Git accounts from the status bar.
 
-## User journey
+## Use
 
-1. Click the status bar (**Git Switch** / your account name).
-2. Pick an account **or** choose **Add with GitHub…**
-3. Approve in the browser → done.
+1. Click **Git Switch** in the status bar
+2. Pick an account, or **Add with GitHub…**
+3. Approve in the browser → done
 
-You can also run **Git Switch: Add Account (GitHub)** from the command palette.
+Also: command palette → **Git Switch: Switch Account** / **Add Account (GitHub)**.
 
-## Setup (from this repo)
+Uses this workspace’s Git config when you’re in a repo; otherwise global.
 
-```bash
-cd extension
-npm install
-npm run compile
-```
+## Install
 
-Then in VS Code/Cursor: **Extensions: Install from Location…** → choose the `extension` folder  
-(or press **F5** from the extension folder to launch an Extension Development Host).
+[Marketplace](https://marketplace.visualstudio.com/items?itemName=gitswitch.git-switch-accounts) — search **Git Switch**.
 
-Requires:
+Tokens stay in your OS credential store. Does not change `gh` CLI login.
 
-- `python3` on your PATH (same machine as the desktop app)
-- This repo’s `gitswitch` package (auto-detected next to `extension/`)
+## Privacy
 
-Optional settings:
-
-- `gitSwitch.pythonPath` — default `python3`
-- `gitSwitch.packageRoot` — repo root containing the `gitswitch` folder
-
-## Commands
-
-| Command | What it does |
-| --- | --- |
-| **Git Switch: Switch Account** | Quick-pick to switch or add (same as status bar click) |
-| **Git Switch: Add Account (GitHub)** | Browser sign-in → save account |
-| **Git Switch: Refresh** | Reload the status bar label |
-
-Switch prefers **this workspace** (local git config) when the folder is a repo; otherwise it uses **global**.
+Account labels live in `~/.gitswitch/`. GitHub tokens go through Git’s credential helper — never into the extension config file.

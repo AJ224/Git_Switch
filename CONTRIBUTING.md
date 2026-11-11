@@ -1,63 +1,98 @@
-# Contributing to Git Account Switcher
+# Contributing to Git Switch
 
-Thanks for helping improve Git Account Switcher.
+Thanks for helping improve Git Switch.
 
-## Getting started
+## Repo layout
 
-1. Clone the repository.
-2. Ensure Python 3.8+ and Git are installed.
-3. Run the app locally:
+```text
+git_account_switcher.py   # desktop launcher
+gitswitch/                # Python core + Tk UI
+  app.py                  # desktop window
+  service.py              # shared switch / list / status
+  backend.py              # git / ssh / credential commands
+  __main__.py             # JSON bridge for the extension
+extension/                # VS Code / Cursor extension
+tests/                    # unit tests
+assets/                   # app icons (.icns / .ico / png)
+docs/                     # logo and user-facing images
+```
+
+## Desktop app (Python)
+
+**Requirements:** Python 3.8+, Git, Tkinter.
 
 ```bash
 python3 git_account_switcher.py
 ```
 
-On Linux, install Tkinter if needed:
+Linux Tkinter (if missing):
 
 ```bash
 sudo apt install python3-tk
 ```
 
-For PAT testing, configure a Git credential helper for your platform before saving tokens in the app.
+For PAT / GitHub sign-in testing, configure a credential helper first (osxkeychain / GCM / libsecret).
 
-## Development guidelines
+### Guidelines
 
-- Keep runtime dependencies at zero beyond the Python standard library.
-- Preserve local-first behavior: account metadata stays in `~/.gitswitch/`, and PAT tokens must never be written to disk by the app.
-- Use Git's credential protocol (`git credential approve` / `reject`) for PAT storage; do not call platform helpers directly.
-- Prefer small, focused modules under `gitswitch/`.
-- Add or update tests in `tests/` for backend, storage, validation, and credential behavior.
-- Test both light and dark themes when changing UI code.
+- Zero runtime deps beyond the Python stdlib
+- Local-first: metadata in `~/.gitswitch/`; **never** write PAT/OAuth tokens into JSON
+- Store PATs only via `git credential approve` / `reject`
+- Keep modules under `gitswitch/` small and focused
+- Add tests in `tests/` for service, backend, store, OAuth helpers
+- Check light and dark themes when changing UI
 
-## Pull requests
-
-- Describe the problem and the solution clearly.
-- Include screenshots for UI changes when possible.
-- Run tests before opening a PR:
+### Tests
 
 ```bash
 python3 -m unittest discover -s tests
 python3 -m compileall -q git_account_switcher.py gitswitch tests
 ```
 
-## Releases
-
-Maintainers cut releases by pushing a version tag:
+## Extension (VS Code / Cursor)
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+cd extension
+npm install
+npm run compile
 ```
 
-The release workflow builds macOS, Windows, and Linux binaries and attaches them to the GitHub Release.
+Then **F5**, or **Extensions: Install from Location…** → `extension/`.
 
-## Reporting issues
+- Marketplace id: `gitswitch.git-switch-accounts`
+- Built-in native engine works without Python; optional bridge via `python -m gitswitch` if `gitSwitch.packageRoot` points at this repo
+- Before publishing, check the `name` in `package.json` is free on the Marketplace (names are global), then:
 
-Include:
+```bash
+cd extension
+npx vsce package
+npx vsce publish --dry-run   # or --oidc with Trusted Publishing
+```
 
-- Operating system and Python version
-- Git version (`git --version`)
-- Whether a credential helper is configured (`git config --global --get-all credential.helper`)
-- Steps to reproduce
-- Expected vs actual behavior
-- Relevant logs or screenshots
+Full publish steps (Marketplace + Open VSX): [extension/PUBLISH.md](extension/PUBLISH.md).
+
+## Desktop binaries
+
+```bash
+pip install pyinstaller
+pyinstaller git_account_switcher.spec   # macOS .app + icons
+```
+
+Maintainers ship releases by tagging:
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+CI builds macOS / Windows / Linux and attaches artifacts to the GitHub Release. Extension publishes via **Actions → Publish Extension** (Trusted Publishing / OIDC).
+
+## Pull requests
+
+- Describe the problem and the fix
+- Screenshots for UI changes when useful
+- Run the test commands above before opening the PR
+
+## Issues
+
+Include OS, Python/`git --version`, credential helper (`git config --global --get-all credential.helper`), steps to reproduce, expected vs actual, and screenshots if relevant.
